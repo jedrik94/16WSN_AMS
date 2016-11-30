@@ -24,6 +24,8 @@ const uint8_t keyAES[] = { 0x00, 0x01, 0x02, 0x03,
 
 const uint8_t message[] = {"SlaveWojtkowiakGala"};
 
+const int timeToStart = 1000;
+
 bool isMaster = false;
 
 static const byte crc_gen = 0x39;
@@ -35,7 +37,7 @@ long startTime = 0;
 bool noSecure = false, modeCRC = false, modeCRC_AES = false;
 
 // TODO: reset and clear those two values (under) after whole process
-int slavesNumber = 0;
+static int slavesNumber = 0;
 uint8_t *availableSlavesAddresses = new uint8_t[15];
 
 uint8_t *dataToSend = new uint8_t[FRAMELENGTH];
@@ -133,7 +135,8 @@ void createFrame(uint8_t RN, uint8_t FNC) {
 }
 
 void presenceTest(uint8_t address) {
-  bool timeout = false;
+  // bool timeout = false;
+  startTime = millis();
 
   radio.stopListening();
 
@@ -142,25 +145,38 @@ void presenceTest(uint8_t address) {
 
   radio.startListening();
 
-  while(!radio.available()) {
-    if((millis() - startTime) > TIMESLOT) {
-      timeout = true;
-      break;
-    }
-  }
+  // while(!radio.available()) {
+  //   if((millis() - startTime) > TIMESLOT) {
+  //     timeout = true;
+  //     break;
+  //   }
+  // }
 
-  if(timeout) {
-    Serial.print("Timeout for node: ");
-    Serial.println(address, HEX);
-  } else {
+  // if(timeout) {
+  //   Serial.print("Timeout for node: ");
+  //   Serial.println(address, HEX);
+  // } else {
     // TODO: logs + ?? is it good method to get address
-    radio.read(dataReceived, FRAMELENGTH);
-    availableSlavesAddresses[slavesNumber] = dataReceived[1];
-    slavesNumber++;
+
+    if(getACK(address)) {
+      availableSlavesAddresses[slavesNumber] = *(dataReceived + 1);
+      Serial.print("ACK recieved from Node. Address: ");
+      Serial.println(*(dataReceived + 1), HEX);
+      Serial.print("Current number of slaves: ");
+      Serial.println(slavesNumber + 1);
+      slavesNumber++;
+    } else {
+      Serial.print("ACK not recieved from Node. There is no such a Node like: ");
+      Serial.println(*(dataReceived + 1), HEX);
+    }
+
+    // radio.read(dataReceived, FRAMELENGTH);
+
     radio.stopListening();
-  }
+
 }
 
+// TODO: Do
 void fillMessage (uint8_t* data) {
   for(int i = 0; i <= 15; i++) {
     dataToSend[i] = *(data + 1);
@@ -182,8 +198,15 @@ int convUint8ToInt(uint8_t* uintParase) {
 
 // TODO: SlotTime
 void setSlaveTimeSlot(uint8_t address) {
+  int slotTime = 0;
 
   radio.stopListening();
+
+  for(int i = 0; i <= numberOfSlaves; i++) {
+    slotTime = timeToStart + i * 50;
+
+    convIntToUint8(slotTime);
+  }
 
   createFrame(address, CNF);
 
@@ -203,8 +226,9 @@ void errorHandler(uint8_t address) {
   Serial.println(errorCounter);
 }
 
-void getACK(uint8_t address) {
+bool getACK(uint8_t address) {
   bool timeout = false;
+  startTime = millis();
 
   radio.startListening();
 
@@ -223,36 +247,41 @@ void getACK(uint8_t address) {
       Serial.print("Timeout of connection with Master");
       errorHandler(address);
     }
-    return;
+    return false;
   }
 
   radio.read(dataReceived, FRAMELENGTH);
   radio.stopListening();
 
   if (isMaster) {
-    getACKMaster();
+    return getACKMaster();
   } else if (!isMaster) {
-    getACKSlave();
+    return getACKSlave();
   }
 
+  return false;
 }
 
-void getACKMaster() {
+bool getACKMaster() {
   if(*dataReceived + 2 == ACK) {
     Serial.print("ACK received from");
     Serial.print(*dataReceived + 1, HEX);
     Serial.println();
+    return true;
   } else {
     errorHandler(RN_0);
+    return false;
   }
 }
 
-void getACKSlave() {
+bool getACKSlave() {
   if(*dataReceived + 2 == ACK) {
     Serial.print("ACK received from Master");
     Serial.println();
+    return true;
   } else {
     errorHandler(*dataReceived + 1);
+    return false;
   }
 }
 
@@ -263,8 +292,11 @@ void sendACK(uint8_t address) {
   Serial.println("ACK sent");
 }
 
+// TODO: Do
 void sendMessage() {
+  while(true) {
 
+  }
 }
 
 void receiveMessage(uint8_t address) {
@@ -277,7 +309,20 @@ void receiveMessage(uint8_t address) {
   }
 }
 
-void sendingMode() {
+void foo2(uint8_t transmissionMode) {
+  slavesNumber = 0;
+
+  Serial.println("Looking for Nodes");
+
+  for(uint8_t i = 0x01; i <= 0x15; i++)
+    presenceTest(i);
+
+  if(slavesNumber == 0)
+    return;
+
+}
+
+void foo1() {
   int errorClickCounter = 0;
   while(true) {
     do {
@@ -296,7 +341,16 @@ void sendingMode() {
       }
     } else {
       selectionSignal();
-      return;
+      if(noSecure)
+        foo2(NON);
+      else if(modeCRC)
+        foo2(CRC);
+      else if(modeCRC_AES)
+        foo2(CRC_AES);
+      else {
+        Serial.print("Sth went wrong! Please reset Arduino.");
+        return;
+      }
     }
   }
 }
