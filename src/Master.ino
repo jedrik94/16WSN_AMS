@@ -26,9 +26,13 @@ const uint8_t message[] = {"SlaveWojtkowiakGala"};
 
 bool isMaster = false;
 
+static const byte crc_gen = 0x39;
+
 static int errorCounter = 0;
 
 long startTime = 0;
+
+bool noSecure = false, modeCRC = false, modeCRC_AES = false;
 
 // TODO: reset and clear those two values (under) after whole process
 int slavesNumber = 0;
@@ -73,12 +77,32 @@ void printHex(uint8_t* data, int length) {
     }
 }
 
+uint8_t CRC8(uint8_t dataBytes[], unsigned short usDataLen) {
+  // byte bytes[name.length() + 1];
+  // name.getBytes(bytes, name.length() + 1);
+  // byte a = CRC8(bytes, name.length());
+
+  uint8_t crc = 0x00;
+
+  while (usDataLen--) {
+    uint8_t inByte = *dataBytes++;
+    crc ^= inByte;
+    for (int i = 8; i > 0; i--) {
+      if (crc & 0x80)
+        crc = (crc << 1) ^ crc_gen;
+      else
+        crc <<= 1;
+    }
+  }
+  return crc;
+}
+
 void assigningIO() {
   pinMode(LED_PIN, OUTPUT);
 
-  pinMode(BUTTON1, INPUT_PULLUP);
-  pinMode(BUTTON2, INPUT_PULLUP);
-  pinMode(BUTTON3, INPUT_PULLUP);
+  pinMode(BUTTON1, INPUT);
+  pinMode(BUTTON2, INPUT);
+  pinMode(BUTTON3, INPUT);
 }
 
 void defineMode() {
@@ -137,12 +161,33 @@ void presenceTest(uint8_t address) {
   }
 }
 
+void fillMessage (uint8_t* data) {
+  for(int i = 0; i <= 15; i++) {
+    dataToSend[i] = *(data + 1);
+  }
+}
+
+uint8_t* convIntToUint8(int intParase) {
+  uint8_t* bytesArray = new uint8_t[4];
+
+  for (int i = 0; i < 4; i++) {
+      bytesArray[3 - i] = (intParase >> (i * 8)) & 0xFF;
+  }
+  return bytesArray;
+}
+
+int convUint8ToInt(uint8_t* uintParase) {
+  return (uintParase[0] << 24) | (uintParase[1] << 16) | (uintParase[2] << 8) | uintParase[3];
+}
+
 // TODO: SlotTime
 void setSlaveTimeSlot(uint8_t address) {
 
   radio.stopListening();
 
   createFrame(address, CNF);
+
+  radio.write(dataToSend, FRAMELENGTH);
 }
 
 void errorHandler(uint8_t address) {
@@ -216,6 +261,44 @@ void sendACK(uint8_t address) {
   createFrame(address, ACK);
   radio.write(dataToSend, FRAMELENGTH);
   Serial.println("ACK sent");
+}
+
+void sendMessage() {
+
+}
+
+void receiveMessage(uint8_t address) {
+  radio.startListening();
+
+  radio.read(dataReceived, FRAMELENGTH);
+
+  if(*(dataReceived + 1) == address) {
+
+  }
+}
+
+void sendingMode() {
+  int errorClickCounter = 0;
+  while(true) {
+    do {
+      noSecure = digitalRead(BUTTON1);
+      modeCRC = digitalRead(BUTTON2);
+      modeCRC_AES = digitalRead(BUTTON3);
+    } while(!noSecure && !modeCRC && !modeCRC_AES);
+
+    if((noSecure && modeCRC) || (noSecure && modeCRC_AES) || (modeCRC && modeCRC_AES)) {
+      errorClickCounter++;
+
+      if(errorClickCounter >= 5) {
+        Serial.println("Error ocurred. Too many buttons clicked at the same monent!");
+      } else {
+        Serial.println("click just one button!");
+      }
+    } else {
+      selectionSignal();
+      return;
+    }
+  }
 }
 
 void setup() {
