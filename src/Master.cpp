@@ -24,7 +24,14 @@ const uint8_t keyAES[] = { 0x00, 0x01, 0x02, 0x03,
 
 const uint8_t message[] = {"SlaveWojtkowiakGala"};
 
+const uint8_t emptyArray[] = { 0x00, 0x01, 0x02, 0x03,
+                               0x04, 0x05, 0x06, 0x07,
+                               0x08, 0x09, 0x0A, 0x0B,
+                               0x0C, 0x0D, 0x0E, 0x0F,
+                               0x10, 0x11, 0x12};
+
 const int timeToStart = 1000;
+const int timeToNextSTM = 4000;
 
 bool isMaster = false;
 
@@ -121,17 +128,105 @@ void selectionSignal() {
   digitalWrite(LED_PIN, LOW);
 }
 
-void createFrame(uint8_t RN, uint8_t FNC) {
+uint8_t* convIntToUint8(int intParase) {
+  uint8_t* bytesArray = new uint8_t[4];
+
+  for (int i = 0; i < 4; i++) {
+      bytesArray[3 - i] = (intParase >> (i * 8)) & 0xFF;
+  }
+  return bytesArray;
+}
+
+int convUint8ToInt(uint8_t* uintParase) {
+  return (uintParase[0] << 24) | (uintParase[1] << 16) | (uintParase[2] << 8) | uintParase[3];
+}
+
+void createFrame(uint8_t RN, uint8_t FNC, uint8_t* data) {
   dataToSend[0] = NN;
   dataToSend[1] = RN;
   dataToSend[2] = FNC;
   if(FNC == MES || FNC == CNF)
   {
-    // TODO: Fill "data + CRC8Mode"
+    dataToSend[3] = sentFramesCounter++;
+    for(int i = 0; i <= 16; i++) {
+      dataToSend[i + 4] = *(data + i);
+    }
   } else {
     for(int i = 3; i >= 20; i++)
       dataToSend[i] = 0x55;
   }
+}
+
+void errorHandler(uint8_t address) {
+  radio.stopListening();
+
+  createFrame(address, ERR, 0x00);
+
+  radio.write(dataToSend, FRAMELENGTH);
+
+  errorCounter++;
+
+  Serial.print("Count of errors: ");
+  Serial.println(errorCounter);
+}
+
+bool getACKMaster() {
+  if(*dataReceived + 2 == ACK) {
+    Serial.print("ACK received from");
+    Serial.print(*dataReceived + 1, HEX);
+    Serial.println();
+    return true;
+  } else {
+    errorHandler(RN_0);
+    return false;
+  }
+}
+
+bool getACKSlave() {
+  if(*dataReceived + 2 == ACK) {
+    Serial.print("ACK received from Master");
+    Serial.println();
+    return true;
+  } else {
+    errorHandler(*dataReceived + 1);
+    return false;
+  }
+}
+
+bool getACK(uint8_t address) {
+  bool timeout = false;
+  startTime = millis();
+
+  radio.startListening();
+
+  while(!radio.available()) {
+    if((millis() - startTime) > TIMESLOT) {
+      timeout = true;
+      break;
+    }
+  }
+
+  if(timeout) {
+    if (isMaster) {
+      Serial.print("Timeout of connection with Node");
+      errorHandler(RN_0);
+    } else if (!isMaster) {
+      Serial.print("Timeout of connection with Master");
+      errorHandler(address);
+    }
+    return false;
+  }
+
+  radio.read(dataReceived, FRAMELENGTH);
+  radio.stopListening();
+
+  if (isMaster) {
+    return getACKMaster();
+  } else if (!isMaster) {
+    return getACKSlave();
+  }
+
+  return false;
 }
 
 void presenceTest(uint8_t address) {
@@ -140,7 +235,7 @@ void presenceTest(uint8_t address) {
 
   radio.stopListening();
 
-  createFrame(address, TSA);
+  createFrame(address, TSA, 0x00);
   radio.write(dataToSend, FRAMELENGTH);
 
   radio.startListening();
@@ -183,111 +278,48 @@ void fillMessage (uint8_t* data) {
   }
 }
 
-uint8_t* convIntToUint8(int intParase) {
-  uint8_t* bytesArray = new uint8_t[4];
-
-  for (int i = 0; i < 4; i++) {
-      bytesArray[3 - i] = (intParase >> (i * 8)) & 0xFF;
-  }
-  return bytesArray;
-}
-
-int convUint8ToInt(uint8_t* uintParase) {
-  return (uintParase[0] << 24) | (uintParase[1] << 16) | (uintParase[2] << 8) | uintParase[3];
-}
-
 // TODO: SlotTime
-void setSlaveTimeSlot(uint8_t address) {
+void setSlaveTimeSlot(uint8_t address, uint8_t transmissionMode) {
+  uint8_t* slotTimeData = new uint8_t[4];
+  uint8_t* nextSTM = new uint8_t[4];
+  uint8_t* dataPrepared = new uint8_t[18];
+
   int slotTime = 0;
 
   radio.stopListening();
 
-  for(int i = 0; i <= numberOfSlaves; i++) {
+  for(int i = 0; i <= slavesNumber; i++) {
     slotTime = timeToStart + i * 50;
 
-    convIntToUint8(slotTime);
-  }
+    slotTimeData = convIntToUint8(slotTime);
+    nextSTM = convIntToUint8(timeToNextSTM);
 
-  createFrame(address, CNF);
-
-  radio.write(dataToSend, FRAMELENGTH);
-}
-
-void errorHandler(uint8_t address) {
-  radio.stopListening();
-
-  createFrame(address, ERR);
-
-  radio.write(dataToSend, FRAMELENGTH);
-
-  errorCounter++;
-
-  Serial.print("Count of errors: ");
-  Serial.println(errorCounter);
-}
-
-bool getACK(uint8_t address) {
-  bool timeout = false;
-  startTime = millis();
-
-  radio.startListening();
-
-  while(!radio.available()) {
-    if((millis() - startTime) > TIMESLOT) {
-      timeout = true;
-      break;
+    for(int j = 0; j <= 15; j++) {
+      if(j < 4) {
+        dataPrepared[j] = slotTimeData[j];
+        dataPrepared[j + 4] = nextSTM[j];
+      }
+      dataPrepared[j + 8] = 0x00;
     }
-  }
-
-  if(timeout) {
-    if (isMaster) {
-      Serial.print("Timeout of connection with Node");
-      errorHandler(RN_0);
-    } else if (!isMaster) {
-      Serial.print("Timeout of connection with Master");
-      errorHandler(address);
+    if(transmissionMode == NON) {
+      dataPrepared[17] = 0x00;
+    } else if(transmissionMode == CRC) {
+      dataPrepared[17] = CRC8(dataPrepared, 16);
+    } else if(transmissionMode == CRC_AES) {
+      // TODO: AES z CRC8 jest zaszyfrowany
+      dataPrepared[17] = CRC8(dataPrepared, 16);
+      aes128_enc_single(keyAES, dataPrepared);
     }
-    return false;
-  }
 
-  radio.read(dataReceived, FRAMELENGTH);
-  radio.stopListening();
+    createFrame(address, CNF, dataPrepared);
 
-  if (isMaster) {
-    return getACKMaster();
-  } else if (!isMaster) {
-    return getACKSlave();
-  }
-
-  return false;
-}
-
-bool getACKMaster() {
-  if(*dataReceived + 2 == ACK) {
-    Serial.print("ACK received from");
-    Serial.print(*dataReceived + 1, HEX);
-    Serial.println();
-    return true;
-  } else {
-    errorHandler(RN_0);
-    return false;
-  }
-}
-
-bool getACKSlave() {
-  if(*dataReceived + 2 == ACK) {
-    Serial.print("ACK received from Master");
-    Serial.println();
-    return true;
-  } else {
-    errorHandler(*dataReceived + 1);
-    return false;
+    radio.write(dataToSend, FRAMELENGTH);
   }
 }
 
 void sendACK(uint8_t address) {
   radio.stopListening();
-  createFrame(address, ACK);
+  createFrame(address, ACK, 0x00);
   radio.write(dataToSend, FRAMELENGTH);
   Serial.println("ACK sent");
 }
@@ -309,16 +341,46 @@ void receiveMessage(uint8_t address) {
   }
 }
 
+void foo3() {
+  radio.startListening();
+
+  while(radio.available()) {
+    radio.read(dataReceived, FRAMELENGTH);
+  }
+  radio.stopListening();
+
+  if(*(dataReceived + 1) == RN_S) {
+    switch (*(dataReceived + 2)) {
+      case NON:
+        break;
+      case CRC:
+        break;
+      case CRC_AES:
+        break;
+    }
+  } else if(*(dataReceived + 1) == STM) {
+
+  }
+
+}
+
 void foo2(uint8_t transmissionMode) {
   slavesNumber = 0;
 
   Serial.println("Looking for Nodes");
 
-  for(uint8_t i = 0x01; i <= 0x15; i++)
+  for(uint8_t i = 0x01; i <= 0x15; i++) {
     presenceTest(i);
+  }
 
-  if(slavesNumber == 0)
+  if(slavesNumber == 0) {
+    Serial.print("There is no Nodes to communicate with.");
     return;
+  } else {
+    for(int i = 0; i <= slavesNumber; i++){
+      setSlaveTimeSlot(*(availableSlavesAddresses + i), transmissionMode);
+    }
+  }
 
 }
 
