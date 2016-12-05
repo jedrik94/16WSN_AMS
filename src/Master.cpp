@@ -50,7 +50,7 @@ uint8_t *availableSlavesAddresses = new uint8_t[15];
 uint8_t *dataToSend = new uint8_t[FRAMELENGTH];
 uint8_t *dataReceived = new uint8_t[FRAMELENGTH];
 
-void radioConfig() {
+inline void radioConfig() {
    radio.begin();
 
    radio.disableCRC();
@@ -106,7 +106,7 @@ uint8_t CRC8(uint8_t dataBytes[], unsigned short usDataLen) {
   return crc;
 }
 
-void assigningIO() {
+inline void assigningIO() {
   pinMode(LED_PIN, OUTPUT);
 
   pinMode(BUTTON1, INPUT);
@@ -114,7 +114,7 @@ void assigningIO() {
   pinMode(BUTTON3, INPUT);
 }
 
-void defineMode() {
+inline void defineMode() {
   if (!digitalRead(BUTTON1)) {
     isMaster = true;
   } else if(!digitalRead(BUTTON2)) {
@@ -171,9 +171,9 @@ void errorHandler(uint8_t address) {
 }
 
 bool getACKMaster() {
-  if(*dataReceived + 2 == ACK) {
+  if(*(dataReceived + 2) == ACK) {
     Serial.print("ACK received from");
-    Serial.print(*dataReceived + 1, HEX);
+    Serial.print(*(dataReceived + 1), HEX);
     Serial.println();
     return true;
   } else {
@@ -183,12 +183,12 @@ bool getACKMaster() {
 }
 
 bool getACKSlave() {
-  if(*dataReceived + 2 == ACK) {
+  if(*(dataReceived + 2) == ACK) {
     Serial.print("ACK received from Master");
     Serial.println();
     return true;
   } else {
-    errorHandler(*dataReceived + 1);
+    errorHandler(*(dataReceived + 1));
     return false;
   }
 }
@@ -208,10 +208,10 @@ bool getACK(uint8_t address) {
 
   if(timeout) {
     if (isMaster) {
-      Serial.print("Timeout of connection with Node");
+      Serial.println("Timeout of connection with Node");
       errorHandler(RN_0);
     } else if (!isMaster) {
-      Serial.print("Timeout of connection with Master");
+      Serial.println("Timeout of connection with Master");
       errorHandler(address);
     }
     return false;
@@ -251,7 +251,7 @@ void presenceTest(uint8_t address) {
   //   Serial.print("Timeout for node: ");
   //   Serial.println(address, HEX);
   // } else {
-    // TODO: logs + ?? is it good method to get address
+
 
     if(getACK(address)) {
       availableSlavesAddresses[slavesNumber] = *(dataReceived + 1);
@@ -262,7 +262,8 @@ void presenceTest(uint8_t address) {
       slavesNumber++;
     } else {
       Serial.print("ACK not recieved from Node. There is no such a Node like: ");
-      Serial.println(*(dataReceived + 1), HEX);
+      Serial.println(address, HEX);
+      //Serial.println(*(dataReceived + 1), HEX);
     }
 
     // radio.read(dataReceived, FRAMELENGTH);
@@ -337,11 +338,14 @@ void receiveMessage(uint8_t address) {
   radio.read(dataReceived, FRAMELENGTH);
 
   if(*(dataReceived + 1) == address) {
-
+    printHex(dataReceived, 21);
+  } else {
+    Serial.println("Nothing to read!");
+    radio.stopListening();
   }
 }
 
-void foo3() {
+void slaveMode() {
   radio.startListening();
 
   while(radio.available()) {
@@ -364,12 +368,12 @@ void foo3() {
 
 }
 
-void foo2(uint8_t transmissionMode) {
+void masterMode(uint8_t transmissionMode) {
   slavesNumber = 0;
 
   Serial.println("Looking for Nodes");
 
-  for(uint8_t i = 0x01; i <= 0x15; i++) {
+  for(uint8_t i = 0x01; i <= 15; i++) {
     presenceTest(i);
   }
 
@@ -384,7 +388,7 @@ void foo2(uint8_t transmissionMode) {
 
 }
 
-void foo1() {
+void masterStart() {
   int errorClickCounter = 0;
   while(true) {
     do {
@@ -404,11 +408,11 @@ void foo1() {
     } else {
       selectionSignal();
       if(noSecure)
-        foo2(NON);
+        masterMode(NON);
       else if(modeCRC)
-        foo2(CRC);
+        masterMode(CRC);
       else if(modeCRC_AES)
-        foo2(CRC_AES);
+        masterMode(CRC_AES);
       else {
         Serial.print("Sth went wrong! Please reset Arduino.");
         return;
@@ -424,9 +428,7 @@ void setup() {
 
   defineMode();
   radioConfig();
-
 }
 
 void loop() {
-
 }

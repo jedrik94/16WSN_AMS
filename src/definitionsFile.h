@@ -16,7 +16,7 @@
 #define CNF 0x05
 #define ERR 0x06
 
-#define RN_S 0x15
+#define RN_S 0x0F // max to 0x0F
 
 #define NON 0xF0
 #define CRC 0xF1
