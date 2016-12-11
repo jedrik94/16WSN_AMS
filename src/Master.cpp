@@ -55,7 +55,7 @@ uint8_t *availableSlavesAddresses = new uint8_t[15];
 uint8_t *dataToSend = new uint8_t[FRAMELENGTH];
 uint8_t *dataReceived = new uint8_t[FRAMELENGTH];
 
-inline void radioConfig() {
+void radioSetUp() {
    radio.begin();
 
    radio.disableCRC();
@@ -65,20 +65,25 @@ inline void radioConfig() {
 
    radio.setAutoAck(false);
    radio.setDataRate(RF24_1MBPS);
+   radio.setPALevel(RF24_PA_MIN)
 
    radio.setRetries(0,0);
 
-   radio.setPayloadSize(21);
+   radio.setPayloadSize(FRAMELENGTH);
 
    if(isMaster) {
+     Serial.println("---Master---");
      radio.openWritingPipe(adr[0]);
-     radio.openReadingPipe(1,adr[1]);
+     radio.openReadingPipe(1, adr[1]);
    } else if (!isMaster) {
-     radio.openReadingPipe(1, adr[0]);
+     Serial.println("---Slave---");
      radio.openWritingPipe(adr[1]);
+     radio.openReadingPipe(1, adr[0]);
    }
 
-   // radio.printDetails();
+   radio.startListening();
+
+   radio.printDetails();
 }
 
 void printHex(uint8_t* data, int length) {
@@ -157,8 +162,9 @@ void createFrame(uint8_t RN, uint8_t FNC, uint8_t* data) {
       dataToSend[i + 4] = *(data + i);
     }
   } else {
-    for(int i = 3; i >= 20; i++)
+    for(int i = 3; i <= 20; i++){
       dataToSend[i] = 0x55;
+    }
   }
 }
 
@@ -235,28 +241,17 @@ bool getACK(uint8_t address) {
 }
 
 void presenceTest(uint8_t address, uint8_t transmissionMode) {
-  // bool timeout = false;
-  startTime = millis();
 
   radio.stopListening();
 
   createFrame(address, transmissionMode, 0x00);
   radio.write(dataToSend, FRAMELENGTH);
 
+  // Debugging
+  printHex(dataToSend, FRAMELENGTH);
+  Serial.println();
+
   radio.startListening();
-
-  // while(!radio.available()) {
-  //   if((millis() - startTime) > TIMESLOT) {
-  //     timeout = true;
-  //     break;
-  //   }
-  // }
-
-  // if(timeout) {
-  //   Serial.print("Timeout for node: ");
-  //   Serial.println(address, HEX);
-  // } else {
-
 
     if(getACK(address)) {
       availableSlavesAddresses[slavesNumber] = *(dataReceived + 1);
@@ -268,10 +263,7 @@ void presenceTest(uint8_t address, uint8_t transmissionMode) {
     } else {
       Serial.print("ACK not recieved from Node. There is no such a Node like: ");
       Serial.println(address, HEX);
-      //Serial.println(*(dataReceived + 1), HEX);
     }
-
-    // radio.read(dataReceived, FRAMELENGTH);
 
     radio.stopListening();
 
@@ -284,7 +276,6 @@ void fillMessage (uint8_t* data) {
   }
 }
 
-// TODO: SlotTime
 void setSlaveTimeSlot(uint8_t address, uint8_t transmissionMode) {
   uint8_t* slotTimeData = new uint8_t[4];
   uint8_t* nextSTM = new uint8_t[4];
@@ -325,6 +316,7 @@ void setSlaveTimeSlot(uint8_t address, uint8_t transmissionMode) {
 
 void sendACK(uint8_t address) {
   radio.stopListening();
+  delay(100);
   createFrame(address, ACK, 0x00);
   radio.write(dataToSend, FRAMELENGTH);
   Serial.println("ACK sent");
@@ -338,7 +330,7 @@ void sendMessage() {
 }
 
 // TODO: Do
-void configDecoding() {
+void getTime() {
   uint8_t* tempArray = new uint8_t[4];
 
   for(int i = 0; i < 4; i++) {
@@ -352,11 +344,37 @@ void configDecoding() {
   slaveStartNextSTM = convUint8ToInt(tempArray);
 }
 
+bool confirmCRC() {
+  uint8_t* tempArray = new uint8_t[16];
+
+  for(int i = 0; i < 16; i++) {
+    tempArray[i] = *(dataReceived + i + 4);
+  }
+
+  if(*(dataReceived + 20) == CRC8(tempArray, 16)) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
 // TODO: Do
 void receiveData(uint8_t address) {
   radio.startListening();
 
+  startTime = millis();
+
+  while (!radio.available() ) {
+    if ((millis() - startTime) > TIMESLOT ) {
+      Serial.println("There is no radio to listen to!");
+      break;
+    }
+  }
+
   radio.read(dataReceived, FRAMELENGTH);
+  // Debugging
+  printHex(dataReceived, FRAMELENGTH);
+  Serial.println();
 
   if(*(dataReceived + 1) == address || *(dataReceived + 1) == RN_0) {
     switch (*(dataReceived + 2)) {
@@ -379,20 +397,27 @@ void receiveData(uint8_t address) {
         if(transmissionType == CRC_AES) {
           aes128_dec_single(keyAES, dataReceived);
         } else if (transmissionType == CRC_AES || transmissionType == CRC) {
-          // TODO: confirm CRC8
+          if(confirmCRC()) {
+            Serial.println("Data was sent properly. CRC8 confirmed!");
+          } else {
+            Serial.println("Data was NOT sent properly. CRC8 NOT confirmed!");
+            errorHandler(RN_S);
+          }
         }
-        configDecoding();
+        getTime();
         break;
       default:
+        sendACK(RN_S);
         break;
     }
-
-
-
   } else {
     Serial.println("Nothing to read!");
-    radio.stopListening();
+    {
+      sendACK(RN_S);
+      return;
+    }
   }
+  radio.stopListening();
 }
 
 void slaveMode() {
@@ -487,11 +512,21 @@ void masterStart() {
 void setup() {
   assigningIO();
 
-  Serial.begin(9600);
+  Serial.begin(57600);
+  printf_begin();
 
   defineMode();
-  radioConfig();
+  // isMaster = false;
+  isMaster = true;
+  radioSetUp();
 }
 
 void loop() {
+  // receiveData(RN_S);
+  // presenceTest(RN_S, NON);
+  Serial.println("--------------------------");
+  radioSetUp();
+  Serial.println("--------------------------");
+
+  delay(10000);
 }
