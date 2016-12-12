@@ -50,10 +50,11 @@ bool noSecure = false, modeCRC = false, modeCRC_AES = false;
 
 // TODO: reset and clear those two values (under) after whole process
 static int slavesNumber = 0;
-uint8_t *availableSlavesAddresses = new uint8_t[15];
+uint8_t* availableSlavesAddresses = new uint8_t[15];
 
-uint8_t *dataToSend = new uint8_t[FRAMELENGTH];
-uint8_t *dataReceived = new uint8_t[FRAMELENGTH];
+uint8_t* dataToSend = new uint8_t[FRAMELENGTH];
+uint8_t* dataReceived = new uint8_t[FRAMELENGTH];
+uint8_t* onlyMessage = new uint8_t[17];
 
 void radioSetUp() {
    radio.begin();
@@ -269,13 +270,6 @@ void presenceTest(uint8_t address, uint8_t transmissionMode) {
 
 }
 
-// TODO: Do
-void fillMessage (uint8_t* data) {
-  for(int i = 0; i <= 15; i++) {
-    dataToSend[i] = *(data + 1);
-  }
-}
-
 void setSlaveTimeSlot(uint8_t address, uint8_t transmissionMode) {
   uint8_t* slotTimeData = new uint8_t[4];
   uint8_t* nextSTM = new uint8_t[4];
@@ -303,7 +297,9 @@ void setSlaveTimeSlot(uint8_t address, uint8_t transmissionMode) {
     } else if(transmissionMode == CRC) {
       dataPrepared[17] = CRC8(dataPrepared, 16);
     } else if(transmissionMode == CRC_AES) {
-      // TODO: AES z CRC8 jest zaszyfrowany
+      /*
+      * AES is cripting message with CRC8
+      */
       dataPrepared[17] = CRC8(dataPrepared, 16);
       aes128_enc_single(keyAES, dataPrepared);
     }
@@ -322,26 +318,28 @@ void sendACK(uint8_t address) {
   Serial.println("ACK sent");
 }
 
-// TODO: Do
-void sendMessage() {
-  while(true) {
-
-  }
-}
-
-// TODO: Do
 void getTime() {
   uint8_t* tempArray = new uint8_t[4];
 
   for(int i = 0; i < 4; i++) {
-    tempArray[i] = *(dataReceived + i + 4);
+    tempArray[i] = *(onlyMessage + i);
   }
   slaveStartSendingTime = convUint8ToInt(tempArray);
 
   for(int i = 0; i < 4; i++) {
-    tempArray[i] = *(dataReceived + i + 8);
+    tempArray[i] = *(onlyMessage + i + 4);
   }
   slaveStartNextSTM = convUint8ToInt(tempArray);
+}
+
+uint8_t* getOnlyMessage() {
+  uint8_t* tempMessage = new uint8_t [17];
+
+  for(int i = 0; i <= 16; i++) {
+    tempMessage[i] = *(dataReceived + i + 4);
+  }
+
+  return tempMessage;
 }
 
 bool confirmCRC() {
@@ -391,11 +389,12 @@ void receiveData(uint8_t address) {
         sendACK(RN_S);
         break;
       case STM:
-
+        // TODO: Start counting
         break;
       case CNF:
         if(transmissionType == CRC_AES) {
-          aes128_dec_single(keyAES, dataReceived);
+          onlyMessage = getOnlyMessage();
+          aes128_dec_single(keyAES, onlyMessage);
         } else if (transmissionType == CRC_AES || transmissionType == CRC) {
           if(confirmCRC()) {
             Serial.println("Data was sent properly. CRC8 confirmed!");
@@ -407,39 +406,88 @@ void receiveData(uint8_t address) {
         getTime();
         break;
       default:
-        sendACK(RN_S);
         break;
     }
   } else {
+    // Debugging
     Serial.println("Nothing to read!");
-    {
-      sendACK(RN_S);
-      return;
-    }
   }
   radio.stopListening();
 }
 
-void slaveMode() {
+void getMessageFromSlave(int slaveNumb) {
+  long startTime = millis();
+
   radio.startListening();
 
-  while(radio.available()) {
-    radio.read(dataReceived, FRAMELENGTH);
+  while (!radio.available()) {
+    if ((millis() - startTime) > static_cast<unsigned int>(1000 + 50 * slaveNumb)) {
+      Serial.println("There is no radio to listen to!");
+      return;
+    }
   }
+
+  radio.read(dataReceived, FRAMELENGTH);
+
+  if(*(dataReceived + 2) != MES) {
+      Serial.println("Unexpected type of data!");
+      errorHandler(*(dataReceived + 1));
+      return;
+  }
+
+  Serial.print("Message received from Node: ");
+  Serial.println(*(dataReceived + 1), HEX);
+
+  Serial.print("Transmission parameter: ");
+  switch (transmissionType) {
+    case NON:
+      Serial.println("no security");
+      break;
+    case CRC:
+      Serial.println("CRC8");
+      break;
+    case CRC_AES:
+      Serial.println("CRC8 with AES128");
+      break;
+  }
+
+  if(transmissionType == CRC_AES) {
+    onlyMessage = getOnlyMessage();
+    aes128_dec_single(keyAES, onlyMessage);
+  } else if (transmissionType == CRC_AES || transmissionType == CRC) {
+    if(confirmCRC()) {
+      Serial.println("Data was sent properly. CRC8 confirmed!");
+    } else {
+      Serial.println("Data was NOT sent properly. CRC8 NOT confirmed!");
+      errorHandler(RN_S);
+    }
+  }
+
+  for(int i = 0; i < 16; i++) {
+    Serial.print((char)* (onlyMessage + i));
+  }
+
   radio.stopListening();
 
-  if(*(dataReceived + 1) == RN_S && *(dataReceived + 2) == CNF) {
-    switch (*(dataReceived + 2)) {
-      case NON:
-        break;
-      case CRC:
-        break;
-      case CRC_AES:
-        break;
-    }
-  } else if(*(dataReceived + 2) == STM) {
+  Serial.print("End of transmission from Node: ");
+  Serial.println(*(dataReceived + 1), HEX);
+}
 
-  }
+void slaveMode() {
+  receiveData(RN_S);
+
+  // if(*(dataReceived + 1) == RN_S && *(dataReceived + 2) == CNF) {
+  //   switch (*(dataReceived + 2)) {
+  //     case NON:
+  //       break;
+  //     case CRC:
+  //       break;
+  //     case CRC_AES:
+  //       break;
+  //   }
+  // } else if(*(dataReceived + 2) == STM) {
+  //
+  // }
 
 }
 
@@ -470,10 +518,11 @@ void masterMode(uint8_t transmissionMode) {
   createFrame(0x00, STM, 0x00);
   radio.write(dataToSend, FRAMELENGTH);
 
-  for(int i = 0; i < slavesNumber; i++) {
-
+  for(int i = 1; i < (slavesNumber + 1); i++) {
+    getMessageFromSlave(i);
   }
 
+  // TODO: Receive next chunks of data after 5000 delay!!
 }
 
 void masterStart() {
