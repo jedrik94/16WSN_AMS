@@ -35,8 +35,8 @@ uint8_t transmissionType = NON;
 const int timeToStart = 1000;
 const int timeToNextSTM = 4000;
 
-int slaveStartSendingTime = 0;
-int slaveStartNextSTM = 0;
+int slaveStartSendingTime = 1000;
+int slaveStartNextSTM = 5000;
 
 bool isMaster = false;
 
@@ -60,7 +60,6 @@ void radioSetUp() {
    radio.begin();
 
    radio.disableCRC();
-   // radio.setCRCLength(RF24_CRC_8);
 
    radio.setChannel(16);
 
@@ -98,9 +97,6 @@ void printHex(uint8_t* data, int length) {
 }
 
 uint8_t CRC8(uint8_t dataBytes[], unsigned short usDataLen) {
-  // byte bytes[name.length() + 1];
-  // name.getBytes(bytes, name.length() + 1);
-  // byte a = CRC8(bytes, name.length());
 
   uint8_t crc = 0x00;
 
@@ -276,14 +272,17 @@ void setSlaveTimeSlot(uint8_t address, uint8_t transmissionMode) {
   uint8_t* dataPrepared = new uint8_t[18];
 
   int slotTime = 0;
+  int slotTimeBetweenSTM = 0;
+
+  slotTimeBetweenSTM = timeToStart + slavesNumber * TIMESLOT;
+  nextSTM = convIntToUint8(slotTimeBetweenSTM);
 
   radio.stopListening();
 
-  for(int i = 0; i <= slavesNumber; i++) {
-    slotTime = timeToStart + i * 50;
+  for(int i = 0; i < slavesNumber; i++) {
+    slotTime = timeToStart + i * TIMESLOT;
 
     slotTimeData = convIntToUint8(slotTime);
-    nextSTM = convIntToUint8(timeToNextSTM);
 
     for(int j = 0; j <= 8; j++) {
       if(j < 4) {
@@ -356,6 +355,44 @@ bool confirmCRC() {
   }
 }
 
+uint8_t* fillMessageBuffer(uint8_t* array) {
+  for(int i = 0; i < 16; i++) {
+    array[i] = message[i];
+  }
+
+  return array;
+}
+
+void foo(uint8_t transmissionMode) {
+  uint8_t* tempArray = new uint8_t[17];
+
+  tempArray = fillMessageBuffer(tempArray);
+
+  if(transmissionMode == NON) {
+    tempArray[17] = 0x00;
+  } else if(transmissionMode == CRC) {
+    tempArray[17] = CRC8(tempArray, 16);
+  } else if(transmissionMode == CRC_AES) {
+    /*
+    * AES is cripting message with CRC8
+    */
+    tempArray[17] = CRC8(tempArray, 16);
+    aes128_enc_single(keyAES, tempArray);
+  }
+
+  createFrame(RN_S, MES, tempArray);
+
+  delay(timeToStart);
+
+  while(true) {
+    delay(timeToStart - slaveStartSendingTime);
+
+    radio.write(dataToSend, FRAMELENGTH);
+
+    delay(slaveStartNextSTM);
+  }
+}
+
 // TODO: Do
 void receiveData(uint8_t address) {
   radio.startListening();
@@ -389,7 +426,9 @@ void receiveData(uint8_t address) {
         sendACK(RN_S);
         break;
       case STM:
-        // TODO: Start counting
+        radio.stopListening();
+
+        foo(transmissionType);
         break;
       case CNF:
         if(transmissionType == CRC_AES) {
@@ -415,13 +454,13 @@ void receiveData(uint8_t address) {
   radio.stopListening();
 }
 
-void getMessageFromSlave(int slaveNumb) {
-  long startTime = millis();
+void getMessageFromSlave() {
+  startTime = millis();
 
   radio.startListening();
 
   while (!radio.available()) {
-    if ((millis() - startTime) > static_cast<unsigned int>(1000 + 50 * slaveNumb)) {
+    if ((millis() - startTime) > TIMESLOT) {
       Serial.println("There is no radio to listen to!");
       return;
     }
@@ -511,15 +550,21 @@ void masterMode(uint8_t transmissionMode) {
     }
   }
 
-  delay(1000);
-
-  startTime = millis();
-
   createFrame(0x00, STM, 0x00);
   radio.write(dataToSend, FRAMELENGTH);
 
+  delay(timeToStart);
+
+  startTime = millis();
+
   for(int i = 1; i < (slavesNumber + 1); i++) {
-    getMessageFromSlave(i);
+    getMessageFromSlave();
+
+    while(true) {
+      if ((millis() - startTime) > TIMESLOT * i ) {
+        break;
+      }
+    }
   }
 
   // TODO: Receive next chunks of data after 5000 delay!!
@@ -578,4 +623,9 @@ void loop() {
   Serial.println("--------------------------");
 
   delay(10000);
+
+  for(int i = 0; i <= 15; i++) {
+    availableSlavesAddresses[i] = 0x00;
+  }
+  slavesNumber = 0;
 }
