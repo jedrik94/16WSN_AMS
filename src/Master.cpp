@@ -48,7 +48,6 @@ long startTime = 0;
 
 bool noSecure = false, modeCRC = false, modeCRC_AES = false;
 
-// TODO: reset and clear those two values (under) after whole process
 static int slavesNumber = 0;
 uint8_t* availableSlavesAddresses = new uint8_t[15];
 
@@ -59,17 +58,12 @@ uint8_t* onlyMessage = new uint8_t[17];
 void radioSetUp() {
    radio.begin();
 
-   radio.disableCRC();
-
-   radio.setChannel(16);
-
-   radio.setAutoAck(false);
-   radio.setDataRate(RF24_1MBPS);
    radio.setPALevel(RF24_PA_MIN);
-
-   radio.setRetries(0,0);
+   radio.setDataRate(RF24_1MBPS);
 
    radio.setPayloadSize(FRAMELENGTH);
+
+   radio.setChannel(16);
 
    if(isMaster) {
      Serial.println("---Master---");
@@ -81,7 +75,10 @@ void radioSetUp() {
      radio.openReadingPipe(1, adr[0]);
    }
 
-   radio.startListening();
+   radio.setAutoAck(false);
+   radio.setRetries(0,0);
+
+   radio.disableCRC();
 
    radio.printDetails();
 }
@@ -165,12 +162,13 @@ void createFrame(uint8_t RN, uint8_t FNC, uint8_t* data) {
   }
 }
 
+// Sending errors is turned off!
 void errorHandler(uint8_t address) {
   radio.stopListening();
 
   createFrame(address, ERR, 0x00);
 
-  radio.write(dataToSend, FRAMELENGTH);
+  // radio.write(dataToSend, FRAMELENGTH);
 
   errorCounter++;
 
@@ -180,7 +178,7 @@ void errorHandler(uint8_t address) {
 
 bool getACKMaster() {
   if(*(dataReceived + 2) == ACK) {
-    Serial.print("ACK received from");
+    Serial.print("ACK received from: ");
     Serial.print(*(dataReceived + 1), HEX);
     Serial.println();
     return true;
@@ -209,6 +207,9 @@ bool getACK(uint8_t address) {
 
   while(!radio.available()) {
     if((millis() - startTime) > TIMESLOT) {
+      Serial.println();
+      Serial.println("Here");
+      Serial.println();
       timeout = true;
       break;
     }
@@ -242,10 +243,13 @@ void presenceTest(uint8_t address, uint8_t transmissionMode) {
   radio.stopListening();
 
   createFrame(address, transmissionMode, 0x00);
+  delay(500);
   radio.write(dataToSend, FRAMELENGTH);
 
   // Debugging
+  Serial.print("---Debugging--- ");
   printHex(dataToSend, FRAMELENGTH);
+  Serial.print("---EndOfDebugging---");
   Serial.println();
 
   radio.startListening();
@@ -260,6 +264,7 @@ void presenceTest(uint8_t address, uint8_t transmissionMode) {
     } else {
       Serial.print("ACK not recieved from Node. There is no such a Node like: ");
       Serial.println(address, HEX);
+      Serial.println("\n");
     }
 
     radio.stopListening();
@@ -303,6 +308,8 @@ void setSlaveTimeSlot(uint8_t address, uint8_t transmissionMode) {
       aes128_enc_single(keyAES, dataPrepared);
     }
 
+    delay(500);
+
     createFrame(address, CNF, dataPrepared);
 
     radio.write(dataToSend, FRAMELENGTH);
@@ -311,7 +318,6 @@ void setSlaveTimeSlot(uint8_t address, uint8_t transmissionMode) {
 
 void sendACK(uint8_t address) {
   radio.stopListening();
-  delay(100);
   createFrame(address, ACK, 0x00);
   radio.write(dataToSend, FRAMELENGTH);
   Serial.println("ACK sent");
@@ -393,7 +399,6 @@ void foo(uint8_t transmissionMode) {
   }
 }
 
-// TODO: Do
 void receiveData(uint8_t address) {
   radio.startListening();
 
@@ -407,22 +412,28 @@ void receiveData(uint8_t address) {
   }
 
   radio.read(dataReceived, FRAMELENGTH);
+
   // Debugging
+  Serial.print("---Debugging--- ");
   printHex(dataReceived, FRAMELENGTH);
+  Serial.print("---EndOfDebugging---");
   Serial.println();
 
-  if(*(dataReceived + 1) == address || *(dataReceived + 1) == RN_0) {
+  if(*(dataReceived + 1) == RN_S || *(dataReceived + 1) == RN_0) {
     switch (*(dataReceived + 2)) {
       case NON:
         transmissionType = NON;
+        delay(50);
         sendACK(RN_S);
         break;
       case CRC:
         transmissionType = CRC;
+        delay(50);
         sendACK(RN_S);
         break;
       case CRC_AES:
         transmissionType = CRC_AES;
+        delay(50);
         sendACK(RN_S);
         break;
       case STM:
@@ -535,14 +546,19 @@ void masterMode(uint8_t transmissionMode) {
 
   radio.stopListening();
 
+  Serial.println();
+  Serial.println("--------------------------");
   Serial.println("Looking for Nodes");
+  Serial.println("--------------------------");
+  Serial.println();
+
 
   for(uint8_t i = 0x01; i <= 15; i++) {
     presenceTest(i, transmissionMode);
   }
 
   if(slavesNumber == 0) {
-    Serial.print("There is no Nodes to communicate with.");
+    Serial.println("There is no Nodes to communicate with.");
     return;
   } else {
     for(int i = 0; i <= slavesNumber; i++){
@@ -561,7 +577,7 @@ void masterMode(uint8_t transmissionMode) {
     getMessageFromSlave();
 
     while(true) {
-      if ((millis() - startTime) > TIMESLOT * i ) {
+      if ((millis() - startTime) > (unsigned long)(TIMESLOT * i) ) {
         break;
       }
     }
@@ -583,9 +599,13 @@ void masterStart() {
       errorClickCounter++;
 
       if(errorClickCounter >= 5) {
+        Serial.println("--------------------------");
         Serial.println("Error ocurred. Too many buttons clicked at the same monent!");
+        Serial.println("--------------------------");
       } else {
+        Serial.println("--------------------------");
         Serial.println("click just one button!");
+        Serial.println("--------------------------");
       }
     } else {
       selectionSignal();
@@ -596,7 +616,11 @@ void masterStart() {
       else if(modeCRC_AES)
         masterMode(CRC_AES);
       else {
+        Serial.println("--------------------------");
+        Serial.println("++++++++++++++++++++++++++");
         Serial.print("Sth went wrong! Please reset Arduino.");
+        Serial.println("++++++++++++++++++++++++++");
+        Serial.println("--------------------------");
         return;
       }
     }
@@ -616,13 +640,11 @@ void setup() {
 }
 
 void loop() {
-  // receiveData(RN_S);
-  // presenceTest(RN_S, NON);
-  Serial.println("--------------------------");
-  radioSetUp();
-  Serial.println("--------------------------");
 
-  delay(10000);
+  // receiveData(RN_S);
+  masterMode(NON);
+
+  delay(1000);
 
   for(int i = 0; i <= 15; i++) {
     availableSlavesAddresses[i] = 0x00;

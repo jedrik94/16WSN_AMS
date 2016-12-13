@@ -23,5 +23,5 @@
 #define CRC_AES 0xF2
 
 #define FRAMELENGTH 21
-#define TIMESLOT 50
+#define TIMESLOT 500
 #endif
