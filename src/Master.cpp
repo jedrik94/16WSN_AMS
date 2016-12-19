@@ -525,20 +525,6 @@ void getMessageFromSlave() {
 
 void slaveMode() {
   receiveData(RN_S);
-
-  // if(*(dataReceived + 1) == RN_S && *(dataReceived + 2) == CNF) {
-  //   switch (*(dataReceived + 2)) {
-  //     case NON:
-  //       break;
-  //     case CRC:
-  //       break;
-  //     case CRC_AES:
-  //       break;
-  //   }
-  // } else if(*(dataReceived + 2) == STM) {
-  //
-  // }
-
 }
 
 void masterMode(uint8_t transmissionMode) {
@@ -573,17 +559,18 @@ void masterMode(uint8_t transmissionMode) {
 
   startTime = millis();
 
-  for(int i = 1; i < (slavesNumber + 1); i++) {
-    getMessageFromSlave();
+  while(true) {
+    for(int i = 1; i < (slavesNumber + 1); i++) {
+      getMessageFromSlave();
 
-    while(true) {
-      if ((millis() - startTime) > (unsigned long)(TIMESLOT * i) ) {
+      while(true) {
+        if ((millis() - startTime) > (unsigned long)(TIMESLOT * i) ) {
         break;
       }
+      }
     }
+    delay(timeToNextSTM - TIMESLOT * slavesNumber);
   }
-
-  // TODO: Receive next chunks of data after 5000 delay!!
 }
 
 void masterStart() {
@@ -634,20 +621,22 @@ void setup() {
   printf_begin();
 
   defineMode();
-  // isMaster = false;
-  isMaster = true;
   radioSetUp();
 }
 
 void loop() {
-
-  // receiveData(RN_S);
-  masterMode(NON);
+  if(isMaster) {
+    masterStart();
+  } else if (!isMaster) {
+    slaveMode();
+  }
 
   delay(1000);
 
-  for(int i = 0; i <= 15; i++) {
-    availableSlavesAddresses[i] = 0x00;
+  if (isMaster) {
+    for(int i = 0; i <= 15; i++) {
+      availableSlavesAddresses[i] = 0x00;
+    }
+    slavesNumber = 0;
   }
-  slavesNumber = 0;
 }
