@@ -35,8 +35,8 @@ uint8_t transmissionType = NON;
 const int timeToStart = 1000;
 const int timeToNextSTM = 4000;
 
-int slaveStartSendingTime = 1000;
-int slaveStartNextSTM = 5000;
+int slaveStartSendingTime = 0;
+int slaveStartNextSTM = 0;
 
 bool isMaster = false;
 
@@ -395,7 +395,7 @@ void foo(uint8_t transmissionMode) {
 
     radio.write(dataToSend, FRAMELENGTH);
 
-    delay(slaveStartNextSTM);
+    delay(timeToNextSTM + slaveStartNextSTM);
   }
 }
 
@@ -465,7 +465,7 @@ void receiveData(uint8_t address) {
   radio.stopListening();
 }
 
-void getMessageFromSlave() {
+void getMessageFromSlave(uint8_t transmissionMode) {
   startTime = millis();
 
   radio.startListening();
@@ -489,7 +489,7 @@ void getMessageFromSlave() {
   Serial.println(*(dataReceived + 1), HEX);
 
   Serial.print("Transmission parameter: ");
-  switch (transmissionType) {
+  switch (transmissionMode) {
     case NON:
       Serial.println("no security");
       break;
@@ -561,7 +561,7 @@ void masterMode(uint8_t transmissionMode) {
 
   while(true) {
     for(int i = 1; i < (slavesNumber + 1); i++) {
-      getMessageFromSlave();
+      getMessageFromSlave(transmissionMode);
 
       while(true) {
         if ((millis() - startTime) > (unsigned long)(TIMESLOT * i) ) {
@@ -569,7 +569,7 @@ void masterMode(uint8_t transmissionMode) {
       }
       }
     }
-    delay(timeToNextSTM - TIMESLOT * slavesNumber);
+    delay(timeToNextSTM);
   }
 }
 
@@ -596,12 +596,18 @@ void masterStart() {
       }
     } else {
       selectionSignal();
-      if(noSecure)
+      if(noSecure) {
         masterMode(NON);
-      else if(modeCRC)
+        transmissionType = NON;
+      }
+      else if(modeCRC) {
+        transmissionType = CRC;
         masterMode(CRC);
-      else if(modeCRC_AES)
+      }
+      else if(modeCRC_AES) {
+        transmissionType = CRC_AES;
         masterMode(CRC_AES);
+      }
       else {
         Serial.println("--------------------------");
         Serial.println("++++++++++++++++++++++++++");
@@ -621,12 +627,13 @@ void setup() {
   printf_begin();
 
   defineMode();
+  isMaster = true;
   radioSetUp();
 }
 
 void loop() {
   if(isMaster) {
-    masterStart();
+    masterMode(CRC);
   } else if (!isMaster) {
     slaveMode();
   }
