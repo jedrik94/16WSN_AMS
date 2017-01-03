@@ -22,7 +22,7 @@ const uint8_t keyAES[] = { 0x00, 0x01, 0x02, 0x03,
                            // aes128_enc_single(key, data);
                            // aes128_dec_single(key, data);
 
-const uint8_t message[] = {"SlaveWojtkowiakGala"};
+const uint8_t message[] = {"SlaveGalaWojtk"};
 
 const uint8_t emptyArray[] = { 0x00, 0x01, 0x02, 0x03,
                                0x04, 0x05, 0x06, 0x07,
@@ -393,6 +393,12 @@ void foo(uint8_t transmissionMode) {
   while(true) {
     delay(timeToStart - slaveStartSendingTime);
 
+    Serial.println();
+    printHex(message, 14);
+    Serial.println();
+    printHex(dataToSend, 21);
+    Serial.println();
+
     radio.write(dataToSend, FRAMELENGTH);
 
     delay(timeToNextSTM + slaveStartNextSTM);
@@ -627,13 +633,13 @@ void setup() {
   printf_begin();
 
   defineMode();
-  isMaster = true;
+  //isMaster = false;
   radioSetUp();
 }
 
 void loop() {
   if(isMaster) {
-    masterMode(CRC);
+    masterStart();
   } else if (!isMaster) {
     slaveMode();
   }
