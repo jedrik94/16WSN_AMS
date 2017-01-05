@@ -22,7 +22,7 @@ const uint8_t keyAES[] = { 0x00, 0x01, 0x02, 0x03,
                            // aes128_enc_single(key, data);
                            // aes128_dec_single(key, data);
 
-const uint8_t message[] = {"SlaveGalaWojtk"};
+const uint8_t message[] = {"SlaveGalaWojtkow"};
 
 const uint8_t emptyArray[] = { 0x00, 0x01, 0x02, 0x03,
                                0x04, 0x05, 0x06, 0x07,
@@ -119,9 +119,9 @@ inline void assigningIO() {
 }
 
 inline void defineMode() {
-  if (!digitalRead(BUTTON1)) {
+  if (digitalRead(BUTTON1)) {
     isMaster = true;
-  } else if(!digitalRead(BUTTON2)) {
+  } else if(digitalRead(BUTTON2)) {
     isMaster = false;
   }
 }
@@ -274,7 +274,7 @@ void presenceTest(uint8_t address, uint8_t transmissionMode) {
 void setSlaveTimeSlot(uint8_t address, uint8_t transmissionMode) {
   uint8_t* slotTimeData = new uint8_t[4];
   uint8_t* nextSTM = new uint8_t[4];
-  uint8_t* dataPrepared = new uint8_t[18];
+  uint8_t* dataPrepared = new uint8_t[17];
 
   int slotTime = 0;
   int slotTimeBetweenSTM = 0;
@@ -297,18 +297,18 @@ void setSlaveTimeSlot(uint8_t address, uint8_t transmissionMode) {
       dataPrepared[j + 8] = 0x00;
     }
     if(transmissionMode == NON) {
-      dataPrepared[17] = 0x00;
+      dataPrepared[16] = 0x00;
     } else if(transmissionMode == CRC) {
-      dataPrepared[17] = CRC8(dataPrepared, 16);
+      dataPrepared[16] = CRC8(dataPrepared, 16);
     } else if(transmissionMode == CRC_AES) {
       /*
       * AES is cripting message with CRC8
       */
-      dataPrepared[17] = CRC8(dataPrepared, 16);
+      dataPrepared[16] = CRC8(dataPrepared, 16);
       aes128_enc_single(keyAES, dataPrepared);
     }
 
-    delay(500);
+    delay(1000);
 
     createFrame(address, CNF, dataPrepared);
 
@@ -375,14 +375,14 @@ void foo(uint8_t transmissionMode) {
   tempArray = fillMessageBuffer(tempArray);
 
   if(transmissionMode == NON) {
-    tempArray[17] = 0x00;
+    tempArray[16] = 0x00;
   } else if(transmissionMode == CRC) {
-    tempArray[17] = CRC8(tempArray, 16);
+    tempArray[16] = CRC8(tempArray, 16);
   } else if(transmissionMode == CRC_AES) {
     /*
     * AES is cripting message with CRC8
     */
-    tempArray[17] = CRC8(tempArray, 16);
+    tempArray[16] = CRC8(tempArray, 16);
     aes128_enc_single(keyAES, tempArray);
   }
 
@@ -394,7 +394,7 @@ void foo(uint8_t transmissionMode) {
     delay(timeToStart - slaveStartSendingTime);
 
     Serial.println();
-    printHex(message, 14);
+    printHex(message, 16);
     Serial.println();
     printHex(dataToSend, 21);
     Serial.println();
@@ -448,8 +448,8 @@ void receiveData(uint8_t address) {
         foo(transmissionType);
         break;
       case CNF:
+        onlyMessage = getOnlyMessage();
         if(transmissionType == CRC_AES) {
-          onlyMessage = getOnlyMessage();
           aes128_dec_single(keyAES, onlyMessage);
         } else if (transmissionType == CRC_AES || transmissionType == CRC) {
           if(confirmCRC()) {
@@ -507,8 +507,9 @@ void getMessageFromSlave(uint8_t transmissionMode) {
       break;
   }
 
+  onlyMessage = getOnlyMessage();
+
   if(transmissionType == CRC_AES) {
-    onlyMessage = getOnlyMessage();
     aes128_dec_single(keyAES, onlyMessage);
   } else if (transmissionType == CRC_AES || transmissionType == CRC) {
     if(confirmCRC()) {
@@ -522,6 +523,8 @@ void getMessageFromSlave(uint8_t transmissionMode) {
   for(int i = 0; i < 16; i++) {
     Serial.print((char)* (onlyMessage + i));
   }
+
+  Serial.print("\n");
 
   radio.stopListening();
 
@@ -553,8 +556,8 @@ void masterMode(uint8_t transmissionMode) {
     Serial.println("There is no Nodes to communicate with.");
     return;
   } else {
-    for(int i = 0; i <= slavesNumber; i++){
-      setSlaveTimeSlot(*(availableSlavesAddresses + i), transmissionMode);
+    for(int i = 0; i < slavesNumber; i++){
+      setSlaveTimeSlot(availableSlavesAddresses[i], transmissionMode);
     }
   }
 
@@ -603,14 +606,23 @@ void masterStart() {
     } else {
       selectionSignal();
       if(noSecure) {
-        masterMode(NON);
+        Serial.println("\n--------------------------");
+        Serial.println("No secure Mode");
+        Serial.println("-------------------------\n");
         transmissionType = NON;
+        masterMode(NON);
       }
       else if(modeCRC) {
+        Serial.println("\n--------------------------");
+        Serial.println("CRC8 Mode");
+        Serial.println("-------------------------\n");
         transmissionType = CRC;
         masterMode(CRC);
       }
       else if(modeCRC_AES) {
+        Serial.println("\n--------------------------");
+        Serial.println("CRC8 + AES128 Mode");
+        Serial.println("-------------------------\n");
         transmissionType = CRC_AES;
         masterMode(CRC_AES);
       }
@@ -633,7 +645,6 @@ void setup() {
   printf_begin();
 
   defineMode();
-  //isMaster = false;
   radioSetUp();
 }
 
