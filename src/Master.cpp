@@ -22,7 +22,7 @@ const uint8_t keyAES[] = { 0x00, 0x01, 0x02, 0x03,
                            // aes128_enc_single(key, data);
                            // aes128_dec_single(key, data);
 
-const uint8_t message[] = {"SlaveGalaWojtkow"};
+uint8_t message[] = {"SlaveGalaWojtkow"};
 
 const uint8_t emptyArray[] = { 0x00, 0x01, 0x02, 0x03,
                                0x04, 0x05, 0x06, 0x07,
@@ -32,11 +32,11 @@ const uint8_t emptyArray[] = { 0x00, 0x01, 0x02, 0x03,
 
 uint8_t transmissionType = NON;
 
-const int timeToStart = 1000;
-const int timeToNextSTM = 4000;
+const long timeToStart = 1000;
+const long timeToNextSTM = 49000;
 
-int slaveStartSendingTime = 0;
-int slaveStartNextSTM = 0;
+long slaveStartSendingTime = 0;
+long slaveStartNextSTM = 0;
 
 bool isMaster = false;
 
@@ -132,7 +132,7 @@ void selectionSignal() {
   digitalWrite(LED_PIN, LOW);
 }
 
-uint8_t* convIntToUint8(int intParase) {
+uint8_t* convIntToUint8(long intParase) {
   uint8_t* bytesArray = new uint8_t[4];
 
   for (int i = 0; i < 4; i++) {
@@ -141,8 +141,8 @@ uint8_t* convIntToUint8(int intParase) {
   return bytesArray;
 }
 
-int convUint8ToInt(uint8_t* uintParase) {
-  return (uintParase[0] << 24) | (uintParase[1] << 16) | (uintParase[2] << 8) | uintParase[3];
+long convUint8ToInt(uint8_t* uintParase) {
+  return ((uint32_t)uintParase[0] << 24) | ((uint32_t)uintParase[1] << 16) | ((uint32_t)uintParase[2] << 8) | (uint32_t)uintParase[3];
 }
 
 void createFrame(uint8_t RN, uint8_t FNC, uint8_t* data) {
@@ -276,10 +276,10 @@ void setSlaveTimeSlot(uint8_t address, uint8_t transmissionMode) {
   uint8_t* nextSTM = new uint8_t[4];
   uint8_t* dataPrepared = new uint8_t[17];
 
-  int slotTime = 0;
-  int slotTimeBetweenSTM = 0;
+  long slotTime = 0;
+  long slotTimeBetweenSTM = 0;
 
-  slotTimeBetweenSTM = timeToStart + slavesNumber * TIMESLOT;
+  slotTimeBetweenSTM = timeToStart + timeToNextSTM;
   nextSTM = convIntToUint8(slotTimeBetweenSTM);
 
   radio.stopListening();
@@ -308,6 +308,12 @@ void setSlaveTimeSlot(uint8_t address, uint8_t transmissionMode) {
       aes128_enc_single(keyAES, dataPrepared);
     }
 
+    Serial.println("$$$$$$$$$$$$");
+    printHex(nextSTM, 4);
+    Serial.println("\n$$$$$$$$$$$$");
+    printHex(slotTimeData, 4);
+    Serial.println("\n$$$$$$$$$$$$");
+
     delay(1000);
 
     createFrame(address, CNF, dataPrepared);
@@ -335,6 +341,12 @@ void getTime() {
     tempArray[i] = *(onlyMessage + i + 4);
   }
   slaveStartNextSTM = convUint8ToInt(tempArray);
+
+  Serial.println("@@@@@@@@@@@@@@@");
+  Serial.println(slaveStartSendingTime);
+  Serial.println("@@@@@@@@@@@@@@@");
+  Serial.println(slaveStartNextSTM);
+  Serial.println("@@@@@@@@@@@@@@@");
 }
 
 uint8_t* getOnlyMessage() {
@@ -370,6 +382,8 @@ uint8_t* fillMessageBuffer(uint8_t* array) {
 }
 
 void foo(uint8_t transmissionMode) {
+  long tempTime = millis();
+
   uint8_t* tempArray = new uint8_t[17];
 
   tempArray = fillMessageBuffer(tempArray);
@@ -388,10 +402,10 @@ void foo(uint8_t transmissionMode) {
 
   createFrame(RN_S, MES, tempArray);
 
-  delay(timeToStart);
+  delay(timeToStart - (millis() - tempTime));
 
   while(true) {
-    delay(timeToStart - slaveStartSendingTime);
+    delay(slaveStartSendingTime - timeToStart);
 
     Serial.println();
     printHex(message, 16);
@@ -566,16 +580,17 @@ void masterMode(uint8_t transmissionMode) {
 
   delay(timeToStart);
 
-  startTime = millis();
+
 
   while(true) {
-    for(int i = 1; i < (slavesNumber + 1); i++) {
+    startTime = millis();
+    for(int i = 0; i < slavesNumber; i++) {
       getMessageFromSlave(transmissionMode);
 
       while(true) {
-        if ((millis() - startTime) > (unsigned long)(TIMESLOT * i) ) {
+        if ((millis() - startTime) > (unsigned long)(TIMESLOT * (i + 1)) ) {
         break;
-      }
+        }
       }
     }
     delay(timeToNextSTM);
