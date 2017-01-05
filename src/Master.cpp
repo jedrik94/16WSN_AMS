@@ -33,7 +33,7 @@ const uint8_t emptyArray[] = { 0x00, 0x01, 0x02, 0x03,
 uint8_t transmissionType = NON;
 
 const long timeToStart = 1000;
-const long timeToNextSTM = 49000;
+const long timeToNextSTM = 4000;
 
 long slaveStartSendingTime = 0;
 long slaveStartNextSTM = 0;
@@ -402,9 +402,15 @@ void foo(uint8_t transmissionMode) {
 
   createFrame(RN_S, MES, tempArray);
 
+  Serial.println("Time to first");
+  Serial.println(timeToStart - (millis() - tempTime));
+
   delay(timeToStart - (millis() - tempTime));
 
   while(true) {
+    tempTime = millis();
+    Serial.println("Time to my sending period");
+    Serial.println(slaveStartSendingTime - timeToStart);
     delay(slaveStartSendingTime - timeToStart);
 
     Serial.println();
@@ -415,7 +421,12 @@ void foo(uint8_t transmissionMode) {
 
     radio.write(dataToSend, FRAMELENGTH);
 
-    delay(timeToNextSTM + slaveStartNextSTM);
+    Serial.println("Time to next whole period");
+    Serial.println(slaveStartNextSTM);
+    while(true){
+      if((signed long)millis() - tempTime > slaveStartNextSTM - timeToStart)
+        break;
+    }
   }
 }
 
@@ -579,12 +590,12 @@ void masterMode(uint8_t transmissionMode) {
   radio.write(dataToSend, FRAMELENGTH);
 
   delay(timeToStart);
-
-
-
+  delay(700);
+  
   while(true) {
     startTime = millis();
     for(int i = 0; i < slavesNumber; i++) {
+
       getMessageFromSlave(transmissionMode);
 
       while(true) {
@@ -593,7 +604,10 @@ void masterMode(uint8_t transmissionMode) {
         }
       }
     }
-    delay(timeToNextSTM);
+    while(true){
+      if(millis() - startTime > (unsigned long)timeToNextSTM)
+        break;
+    }
   }
 }
 
