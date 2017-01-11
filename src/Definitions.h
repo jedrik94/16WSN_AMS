@@ -1,5 +1,5 @@
-#ifndef __DEFINITIONSFILE_H__
-#define __DEFINITIONSFILE_H__
+#ifndef __DEFINITIONS_H__
+#define __DEFINITIONS_H__
 
 #define BUTTON1 2
 #define BUTTON2 3

@@ -5,56 +5,55 @@
 #include <printf.h>
 #include <nRF24L01.h>
 #include <AESLib.h>
-#include "definitionsFile.h"
+#include "Definitions.h"
 
-uint8_t sentFramesCounter = 0x00;
+uint8_t sentFramesCounter = 0x00; // counts sent frames from node
 
-RF24 radio(9,10);
+RF24 radio(9,10); // init of RF24
 
-const uint64_t adr[2] = { 0x1B1B1B1B21LL, 0x1B1B1B1B12LL };
+const uint64_t adr[2] = { 0x1B1B1B1B21LL, 0x1B1B1B1B12LL }; // piplines
 
 const uint8_t keyAES[] = { 0x00, 0x01, 0x02, 0x03,
                            0x04, 0x05, 0x06, 0x07,
                            0x08, 0x09, 0x0A, 0x0B,
-                           0x0C, 0x0D, 0x0E, 0x0F};
+                           0x0C, 0x0D, 0x0E, 0x0F}; // AES encryption key
 
-                           // char data[] = "Jedrzej Wojtkowiak";
-                           // aes128_enc_single(key, data);
-                           // aes128_dec_single(key, data);
-
-uint8_t message[] = {"SlaveGalaWojtkow"};
+uint8_t message[] = {"SlaveGalaWojtkow"}; // message to send to master
 
 const uint8_t emptyArray[] = { 0x00, 0x01, 0x02, 0x03,
                                0x04, 0x05, 0x06, 0x07,
                                0x08, 0x09, 0x0A, 0x0B,
                                0x0C, 0x0D, 0x0E, 0x0F,
-                               0x10, 0x11, 0x12};
+                               0x10, 0x11, 0x12}; // testing array
 
-uint8_t transmissionType = NON;
+uint8_t transmissionType = NON; // initial transmission mode
 
-const long timeToStart = 1000;
-const long timeToNextSTM = 4000;
+const long timeToStart = 1000; // time to start STM
+const long timeToNextSTM = 4000; // time to next STM
 
-long slaveStartSendingTime = 0;
+long slaveStartSendingTime = 0; // temps to define time for slave
 long slaveStartNextSTM = 0;
 
-bool isMaster = false;
+bool isMaster = false; // mode master/slave
 
-static const byte crc_gen = 0x39;
+static const byte crc_gen = 0x39; // crc generator
 
-static int errorCounter = 0;
+static int errorCounter = 0; // error counter
 
-long startTime = 0;
+long startTime = 0; // timer
 
-bool noSecure = false, modeCRC = false, modeCRC_AES = false;
+bool noSecure = false, modeCRC = false, modeCRC_AES = false; // temps to define transmission mode
 
-static int slavesNumber = 0;
-uint8_t* availableSlavesAddresses = new uint8_t[15];
+static int slavesNumber = 0; // slaves counter
+uint8_t* availableSlavesAddresses = new uint8_t[15]; // array with available slaves addresses
 
-uint8_t* dataToSend = new uint8_t[FRAMELENGTH];
+uint8_t* dataToSend = new uint8_t[FRAMELENGTH]; // arrays of communication data
 uint8_t* dataReceived = new uint8_t[FRAMELENGTH];
 uint8_t* onlyMessage = new uint8_t[17];
 
+/**
+    setting up radio parameters
+*/
 void radioSetUp() {
    radio.begin();
 
@@ -83,6 +82,9 @@ void radioSetUp() {
    radio.printDetails();
 }
 
+/**
+    printing HEX values to serial port
+*/
 void printHex(uint8_t* data, int length) {
     for (int i = 0; i < length; i++) {
       Serial.print("0x");
@@ -93,6 +95,9 @@ void printHex(uint8_t* data, int length) {
     }
 }
 
+/**
+    CRC8 values creator
+*/
 uint8_t CRC8(uint8_t dataBytes[], unsigned short usDataLen) {
 
   uint8_t crc = 0x00;
@@ -110,6 +115,9 @@ uint8_t CRC8(uint8_t dataBytes[], unsigned short usDataLen) {
   return crc;
 }
 
+/**
+    assigning inputs and outputs
+*/
 inline void assigningIO() {
   pinMode(LED_PIN, OUTPUT);
 
@@ -118,6 +126,9 @@ inline void assigningIO() {
   pinMode(BUTTON3, INPUT);
 }
 
+/**
+    defining node mode master or slave
+*/
 inline void defineMode() {
   if (digitalRead(BUTTON1)) {
     isMaster = true;
@@ -126,12 +137,18 @@ inline void defineMode() {
   }
 }
 
+/**
+    signalisation of choosen transmission mode
+*/
 void selectionSignal() {
   digitalWrite(LED_PIN, HIGH);
   delay(100);
   digitalWrite(LED_PIN, LOW);
 }
 
+/**
+    converter from 32bits long to array of 8bits chars
+*/
 uint8_t* convIntToUint8(long intParase) {
   uint8_t* bytesArray = new uint8_t[4];
 
@@ -141,10 +158,16 @@ uint8_t* convIntToUint8(long intParase) {
   return bytesArray;
 }
 
+/**
+    converter from array of 8bits chars to 32bits long
+*/
 long convUint8ToInt(uint8_t* uintParase) {
   return ((uint32_t)uintParase[0] << 24) | ((uint32_t)uintParase[1] << 16) | ((uint32_t)uintParase[2] << 8) | (uint32_t)uintParase[3];
 }
 
+/**
+    frame creator, filling spaces in data buffor
+*/
 void createFrame(uint8_t RN, uint8_t FNC, uint8_t* data) {
   dataToSend[0] = NN;
   dataToSend[1] = RN;
@@ -162,13 +185,15 @@ void createFrame(uint8_t RN, uint8_t FNC, uint8_t* data) {
   }
 }
 
-// Sending errors is turned off!
+/**
+    handling errors and sending frame with error
+*/
 void errorHandler(uint8_t address) {
   radio.stopListening();
 
   createFrame(address, ERR, 0x00);
 
-  // radio.write(dataToSend, FRAMELENGTH);
+  radio.write(dataToSend, FRAMELENGTH);
 
   errorCounter++;
 
@@ -176,6 +201,9 @@ void errorHandler(uint8_t address) {
   Serial.println(errorCounter);
 }
 
+/**
+    acknowledge validator (master) - sub-function
+*/
 bool getACKMaster() {
   if(*(dataReceived + 2) == ACK) {
     Serial.print("ACK received from: ");
@@ -188,6 +216,9 @@ bool getACKMaster() {
   }
 }
 
+/**
+    acknowledge validator (slave) - sub-function
+*/
 bool getACKSlave() {
   if(*(dataReceived + 2) == ACK) {
     Serial.print("ACK received from Master");
@@ -199,6 +230,9 @@ bool getACKSlave() {
   }
 }
 
+/**
+    acknowledge validator
+*/
 bool getACK(uint8_t address) {
   bool timeout = false;
   startTime = millis();
@@ -238,6 +272,9 @@ bool getACK(uint8_t address) {
   return false;
 }
 
+/**
+    testing presence of slave nodes
+*/
 void presenceTest(uint8_t address, uint8_t transmissionMode) {
 
   radio.stopListening();
@@ -271,6 +308,9 @@ void presenceTest(uint8_t address, uint8_t transmissionMode) {
 
 }
 
+/**
+    setting time for present slaves and passing frames with data to send
+*/
 void setSlaveTimeSlot(uint8_t address, uint8_t transmissionMode) {
   uint8_t* slotTimeData = new uint8_t[4];
   uint8_t* nextSTM = new uint8_t[4];
@@ -308,6 +348,7 @@ void setSlaveTimeSlot(uint8_t address, uint8_t transmissionMode) {
       aes128_enc_single(keyAES, dataPrepared);
     }
 
+    // Debugging
     Serial.println("$$$$$$$$$$$$");
     printHex(nextSTM, 4);
     Serial.println("\n$$$$$$$$$$$$");
@@ -322,6 +363,9 @@ void setSlaveTimeSlot(uint8_t address, uint8_t transmissionMode) {
   }
 }
 
+/**
+    sending acknowledge to master address
+*/
 void sendACK(uint8_t address) {
   radio.stopListening();
   createFrame(address, ACK, 0x00);
@@ -329,6 +373,9 @@ void sendACK(uint8_t address) {
   Serial.println("ACK sent");
 }
 
+/**
+    fetching time form gathered data
+*/
 void getTime() {
   uint8_t* tempArray = new uint8_t[4];
 
@@ -342,6 +389,8 @@ void getTime() {
   }
   slaveStartNextSTM = convUint8ToInt(tempArray);
 
+
+  // Debugging
   Serial.println("@@@@@@@@@@@@@@@");
   Serial.println(slaveStartSendingTime);
   Serial.println("@@@@@@@@@@@@@@@");
@@ -349,6 +398,9 @@ void getTime() {
   Serial.println("@@@@@@@@@@@@@@@");
 }
 
+/**
+    fetching just message form gathered data
+*/
 uint8_t* getOnlyMessage() {
   uint8_t* tempMessage = new uint8_t [17];
 
@@ -359,6 +411,9 @@ uint8_t* getOnlyMessage() {
   return tempMessage;
 }
 
+/**
+    CRC8 validator
+*/
 bool confirmCRC() {
   uint8_t* tempArray = new uint8_t[16];
 
@@ -373,6 +428,9 @@ bool confirmCRC() {
   }
 }
 
+/**
+    fillng buffer for next preperations
+*/
 uint8_t* fillMessageBuffer(uint8_t* array) {
   for(int i = 0; i < 16; i++) {
     array[i] = message[i];
@@ -381,6 +439,9 @@ uint8_t* fillMessageBuffer(uint8_t* array) {
   return array;
 }
 
+/**
+    perparing message and sending it ti masster (loop)
+*/
 void foo(uint8_t transmissionMode) {
   long tempTime = millis();
 
@@ -430,6 +491,9 @@ void foo(uint8_t transmissionMode) {
   }
 }
 
+/**
+    data validator, defining next actions after validing message FNC
+*/
 void receiveData(uint8_t address) {
   radio.startListening();
 
@@ -496,6 +560,9 @@ void receiveData(uint8_t address) {
   radio.stopListening();
 }
 
+/**
+    message from slave getter
+*/
 void getMessageFromSlave(uint8_t transmissionMode) {
   startTime = millis();
 
@@ -557,10 +624,16 @@ void getMessageFromSlave(uint8_t transmissionMode) {
   Serial.println(*(dataReceived + 1), HEX);
 }
 
+/**
+    intermediary function
+*/
 void slaveMode() {
   receiveData(RN_S);
 }
 
+/**
+    main master function
+*/
 void masterMode(uint8_t transmissionMode) {
   slavesNumber = 0;
 
@@ -591,7 +664,7 @@ void masterMode(uint8_t transmissionMode) {
 
   delay(timeToStart);
   delay(700);
-  
+
   while(true) {
     startTime = millis();
     for(int i = 0; i < slavesNumber; i++) {
@@ -611,6 +684,9 @@ void masterMode(uint8_t transmissionMode) {
   }
 }
 
+/**
+    master starter function, validing choosen transmission mode
+*/
 void masterStart() {
   int errorClickCounter = 0;
   while(true) {
@@ -667,6 +743,9 @@ void masterStart() {
   }
 }
 
+/**
+    setup faunction
+*/
 void setup() {
   assigningIO();
 
@@ -677,6 +756,9 @@ void setup() {
   radioSetUp();
 }
 
+/**
+    main loop
+*/
 void loop() {
   if(isMaster) {
     masterStart();
