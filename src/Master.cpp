@@ -276,7 +276,7 @@ void presenceTest(uint8_t address, uint8_t transmissionMode) {
   radio.stopListening();
 
   createFrame(address, transmissionMode, 0x00);
-  delay(500);
+  delay(800);
   radio.write(dataToSend, FRAMELENGTH);
 
   // Debugging
@@ -411,7 +411,6 @@ uint8_t* getOnlyMessage() {
     CRC8 validator
 */
 bool confirmCRC() {
-
 
   for(int i = 0; i < 16; i++) {
     tempArray[i] = *(dataReceived + i + 4);
@@ -603,8 +602,7 @@ void getMessageFromSlave(uint8_t transmissionMode) {
 
   if(transmissionType == CRC_AES) {
     aes128_dec_single(keyAES, onlyMessage);
-  }
-  if (transmissionType == CRC_AES || transmissionType == CRC) {
+  } else if (transmissionType == CRC_AES || transmissionType == CRC) {
     if(confirmCRC()) {
       Serial.println("Data was sent properly. CRC8 confirmed!");
     } else {
