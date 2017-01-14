@@ -20,11 +20,7 @@ const uint8_t keyAES[] = { 0x00, 0x01, 0x02, 0x03,
 
 uint8_t message[] = {"SlaveGalaWojtkow"}; // message to send to master
 
-const uint8_t emptyArray[] = { 0x00, 0x01, 0x02, 0x03,
-                               0x04, 0x05, 0x06, 0x07,
-                               0x08, 0x09, 0x0A, 0x0B,
-                               0x0C, 0x0D, 0x0E, 0x0F,
-                               0x10, 0x11, 0x12}; // testing array
+uint8_t* tempArray = new uint8_t[16];
 
 uint8_t transmissionType = NON; // initial transmission mode
 
@@ -138,7 +134,7 @@ inline void defineMode() {
 }
 
 /**
-    signalisation of choosen transmission mode
+    signalization of chosen transmission mode
 */
 void selectionSignal() {
   digitalWrite(LED_PIN, HIGH);
@@ -166,7 +162,7 @@ long convUint8ToInt(uint8_t* uintParase) {
 }
 
 /**
-    frame creator, filling spaces in data buffor
+    frame creator, filling spaces in data buffer
 */
 void createFrame(uint8_t RN, uint8_t FNC, uint8_t* data) {
   dataToSend[0] = NN;
@@ -193,7 +189,7 @@ void errorHandler(uint8_t address) {
 
   createFrame(address, ERR, 0x00);
 
-  radio.write(dataToSend, FRAMELENGTH);
+  // radio.write(dataToSend, FRAMELENGTH);
 
   errorCounter++;
 
@@ -415,7 +411,7 @@ uint8_t* getOnlyMessage() {
     CRC8 validator
 */
 bool confirmCRC() {
-  uint8_t* tempArray = new uint8_t[16];
+
 
   for(int i = 0; i < 16; i++) {
     tempArray[i] = *(dataReceived + i + 4);
@@ -429,7 +425,7 @@ bool confirmCRC() {
 }
 
 /**
-    fillng buffer for next preperations
+    filling buffer for next preparations
 */
 uint8_t* fillMessageBuffer(uint8_t* array) {
   for(int i = 0; i < 16; i++) {
@@ -440,7 +436,7 @@ uint8_t* fillMessageBuffer(uint8_t* array) {
 }
 
 /**
-    perparing message and sending it ti masster (loop)
+    preparing message and sending it to master (loop)
 */
 void foo(uint8_t transmissionMode) {
   long tempTime = millis();
@@ -492,7 +488,7 @@ void foo(uint8_t transmissionMode) {
 }
 
 /**
-    data validator, defining next actions after validing message FNC
+    data validator, defining next actions after validation of message FNC
 */
 void receiveData(uint8_t address) {
   radio.startListening();
@@ -599,11 +595,16 @@ void getMessageFromSlave(uint8_t transmissionMode) {
       break;
   }
 
-  onlyMessage = getOnlyMessage();
+  // onlyMessage = getOnlyMessage();
+
+  for(int i = 0; i <= 16; i++) {
+    onlyMessage[i] = *(dataReceived + i + 4);
+  }
 
   if(transmissionType == CRC_AES) {
     aes128_dec_single(keyAES, onlyMessage);
-  } else if (transmissionType == CRC_AES || transmissionType == CRC) {
+  }
+  if (transmissionType == CRC_AES || transmissionType == CRC) {
     if(confirmCRC()) {
       Serial.println("Data was sent properly. CRC8 confirmed!");
     } else {
@@ -613,7 +614,7 @@ void getMessageFromSlave(uint8_t transmissionMode) {
   }
 
   for(int i = 0; i < 16; i++) {
-    Serial.print((char)* (onlyMessage + i));
+    Serial.print((char)onlyMessage[i]);
   }
 
   Serial.print("\n");
@@ -685,7 +686,7 @@ void masterMode(uint8_t transmissionMode) {
 }
 
 /**
-    master starter function, validing choosen transmission mode
+    master starter function, validation of chosen transmission mode
 */
 void masterStart() {
   int errorClickCounter = 0;
@@ -760,7 +761,10 @@ void setup() {
     main loop
 */
 void loop() {
+
+
   if(isMaster) {
+    delay(3000);
     masterStart();
   } else if (!isMaster) {
     slaveMode();
